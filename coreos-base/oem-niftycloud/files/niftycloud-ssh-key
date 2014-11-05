@@ -1,0 +1,34 @@
+#!/bin/bash -e
+
+set -e
+
+VMTOOLSD=""
+if [ -x /usr/share/oem/bin/vmtoolsd ]; then
+    VMTOOLSD="/usr/share/oem/bin/vmtoolsd"
+else
+    exit 1
+fi
+
+INIT=$(${VMTOOLSD} --cmd 'info-get guestinfo.init' 2>&1)
+if [ $? -ne 0 ]; then
+    echo "guestinfo.init undefined."
+    ${VMTOOLSD} --cmd 'info-set guestinfo.init_result 9999'
+    exit 0
+fi
+echo "guestinfo.init: $INIT"
+
+if [ $INIT == "1" ]; then
+    KEY=$(${VMTOOLSD} --cmd 'info-get guestinfo.ssh_authorized_key' 2>&1)
+    if [ $? -ne 0 ]; then
+        echo "guestinfo.ssh_authorized_key undefined."
+        KEY=""
+    fi
+    echo "guestinfo.ssh_authorized_key: $KEY"
+
+    if [ -n "$KEY" ]; then
+        update-ssh-keys -a "niftycloud" <<<"$KEY"
+    fi
+    ${VMTOOLSD} --cmd 'info-set guestinfo.init 0'
+fi
+
+${VMTOOLSD} --cmd 'info-set guestinfo.init_result 1'
