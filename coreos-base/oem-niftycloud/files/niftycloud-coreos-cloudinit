@@ -1,0 +1,38 @@
+#!/bin/bash
+
+VMTOOLSD=""
+if [ -x /usr/share/oem/bin/vmtoolsd ]; then
+    VMTOOLSD="/usr/share/oem/bin/vmtoolsd"
+else
+    exit 1
+fi
+
+USER_DATA_DIR=/var/lib/coreos-niftycloud
+USER_DATA_PATH=${USER_DATA_DIR}/user-data
+USER_DATA_FLAG=$(${VMTOOLSD} --cmd 'info-get guestinfo.set_user_data')
+
+if [ "$USER_DATA_FLAG" == "1" ]; then
+    USER_DATA=$(${VMTOOLSD} --cmd 'info-get guestinfo.user_data' 2>&1)
+    if [ $? -ne 0 ]; then
+        echo "guestinfo.user_data undefined."
+        USER_DATA=""
+    fi
+    echo "guestinfo.user_data: ${USER_DATA}"
+
+    TMPFILE=$(mktemp /tmp/XXXXXX-cloud-init)
+    if [[ $? -ne 0 || ! -f "${TMPFILE}" ]]; then
+        echo "Failed to create temp file for user-data" >&2
+        exit 1
+    fi
+    trap "rm -f '${TMPFILE}'" EXIT
+
+    echo "${USER_DATA}" | openssl enc -d -base64 > ${TMPFILE}
+    if [ "$(head -n 1 ${TMPFILE} | tr -d '\r' | tr -d '\n')" = "#cloud-config" ]; then
+        mkdir -p ${USER_DATA_DIR}
+        cp -p ${TMPFILE} ${USER_DATA_PATH}
+    fi
+fi
+
+if [ -f ${USER_DATA_PATH} ]; then
+    coreos-cloudinit --from-file="${USER_DATA_PATH}"
+fi

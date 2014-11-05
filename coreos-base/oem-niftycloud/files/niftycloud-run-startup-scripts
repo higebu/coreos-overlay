@@ -1,0 +1,49 @@
+#!/bin/bash
+
+if [ -x /usr/bin/logger ]; then
+    declare -r LOGGER=/usr/bin/logger
+else
+    declare -r LOGGER=/bin/logger
+fi
+
+LOG_CMD="${LOGGER} -t ${SCRIPT_TYPE}script -p daemon.info"
+
+function log() {
+    echo "$@" | ${LOG_CMD}
+}
+
+VMTOOLSD=""
+if [ -x /usr/share/oem/bin/vmtoolsd ]; then
+    VMTOOLSD="/usr/share/oem/bin/vmtoolsd"
+else
+    echo "error: vmtoolsd does not exists."
+    exit 1
+fi
+
+USER_DATA_FLAG=$(${VMTOOLSD} --cmd 'info-get guestinfo.set_user_data')
+if [ "$USER_DATA_FLAG" == "1" ]; then
+    USER_DATA=$(${VMTOOLSD} --cmd 'info-get guestinfo.user_data' 2>&1)
+    if [ $? -ne 0 ]; then
+        echo "guestinfo.user_data undefined."
+        USER_DATA=""
+    fi
+    echo "guestinfo.user_data: ${USER_DATA}"
+
+    TMPFILE=$(mktemp)
+    if [[ $? -ne 0 || ! -f "${TMPFILE}" ]]; then
+        echo "Failed to create temp file for user-data" >&2
+        exit 1
+    fi
+    trap "rm -f '${TMPFILE}'" EXIT
+
+    echo "${USER_DATA}" | openssl enc -d -base64 > ${TMPFILE}
+    if [ $(head -n 1 ${TMPFILE} | grep ^\#\!) ]; then
+         chmod u+x "${TMPFILE}"
+         log "Running script ${USER_DATA}"
+         "${TMPFILE}" 2>&1 | ${LOG_CMD}
+         log "Finished running script ${TMPFILE}"
+         cp -p ${TMPFILE} ~/.niftycloud_user_data
+         rm -f "${dest}"
+    fi
+    ${VMTOOLSD} --cmd 'info-set guestinfo.set_user_data 0'
+fi
